@@ -16,7 +16,15 @@ tokenized_datasets = tokenized_datasets.rename_column("label", "labels")
 tokenized_datasets.set_format("torch", columns=["input_ids", "attention_mask", "labels"])
 
 train_dataset = tokenized_datasets["train"]
+train_test_split = train_dataset.train_test_split(test_size=0.2)
+
+train_dataset = train_test_split['train']
+test_dataset = train_test_split['test']
 eval_dataset = tokenized_datasets["validation"]
+
+# train_dataset = train_dataset.select(range(100))
+# test_dataset = test_dataset.select(range(100))
+# eval_dataset = eval_dataset.select(range(100))
 
 from transformers import Trainer, TrainingArguments, TrainerCallback
 from peft import LoraConfig, get_peft_model, TaskType
@@ -50,7 +58,7 @@ peft_config = LoraConfig(
     r=8,
     lora_alpha=32,
     lora_dropout=0.1,
-    target_modules=["query", "key", "value"],
+    target_modules=["query", "key", "value"]
 )
 
 from datasets import load_metric
@@ -69,7 +77,7 @@ trainer = Trainer(
     model=model,
     args=training_args,
     train_dataset=train_dataset,
-    eval_dataset=eval_dataset,
+    eval_dataset=test_dataset,
     compute_metrics=compute_metrics
 )
 trainer.add_callback(CustomCallback(trainer)) 
@@ -77,12 +85,14 @@ trainer.train()
 
 trainer.evaluate()
 
-import matplotlib.pyplot as plt
+
+test_results = trainer.evaluate(eval_dataset=eval_dataset, metric_key_prefix="test")
 
 log_history = trainer.state.log_history
 
 train_accuracy = [entry['train_accuracy'] for entry in log_history if 'train_accuracy' in entry]
 eval_accuracy = [entry['eval_accuracy'] for entry in log_history if 'eval_accuracy' in entry]
+test_accuracy = test_results["test_accuracy"]
 
 if len(eval_accuracy) > len(train_accuracy):
     eval_accuracy = eval_accuracy[:len(train_accuracy)]
@@ -91,14 +101,15 @@ elif len(train_accuracy) > len(eval_accuracy):
 
 epochs = list(range(1, len(train_accuracy) + 1))
 
+import matplotlib.pyplot as plt
 plt.figure(figsize=(10, 6))
 plt.plot(epochs, train_accuracy, label="Training Accuracy")
 plt.plot(epochs, eval_accuracy, label="Evaluation Accuracy")
+plt.axhline(y=test_accuracy, color='r', linestyle='--', label=f"Test Accuracy: {test_accuracy:.4f}")
 plt.xlabel("Epochs")
 plt.ylabel("Accuracy")
-plt.title("Training and Evaluation Accuracy per Epoch")
+plt.title("Training, Evaluation, and Test Accuracy per Epoch")
 plt.legend()
 plt.grid()
-print("roberta_plot")
-plt.savefig('roberta_finetuning_lora.png')
 
+plt.savefig('roberta_lora_with_test_accuracy.png')
